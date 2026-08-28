@@ -1,5 +1,8 @@
 import { useEffect, useState, useRef } from "react";
 import axios from "axios";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+
 import {
   PieChart,
   Pie,
@@ -12,37 +15,56 @@ import {
   ResponsiveContainer,
   Legend,
 } from "recharts";
+
 import "./App.css";
 
+// ================= API URLs =================
+
 const API_URL = "http://localhost:5000/api/tasks";
+
 const BLOCKER_API_URL =
   "http://localhost:5000/api/blockers";
+
 const STANDUP_API_URL =
   "http://localhost:5000/api/standup";
+
 const ANALYTICS_API_URL =
   "http://localhost:5000/api/analytics";
+
 const ALERTS_API_URL =
   "http://localhost:5000/api/alerts";
+
 const CHAT_API_URL =
   "http://localhost:5000/api/chat";
 
+// ================= APP =================
+
 function App() {
+  // ================= DATA STATES =================
+
   const [tasks, setTasks] = useState([]);
   const [blockers, setBlockers] = useState([]);
   const [analytics, setAnalytics] = useState(null);
   const [alerts, setAlerts] = useState(null);
-
   const [loading, setLoading] = useState(true);
+
+  // ================= STANDUP =================
 
   const [standup, setStandup] = useState("");
   const [standupLoading, setStandupLoading] =
     useState(false);
 
+  // ================= NAVIGATION =================
+
   const [activeSection, setActiveSection] =
     useState("dashboard");
 
+  // ================= TASK EDITING =================
+
   const [editingTask, setEditingTask] =
     useState(null);
+
+  // ================= AI CHAT =================
 
   const [chatMessages, setChatMessages] =
     useState([]);
@@ -53,16 +75,24 @@ function App() {
   const [chatLoading, setChatLoading] =
     useState(false);
 
-  // ================= TEAM MEMBER STATES =================
+  const chatEndRef = useRef(null);
+
+  // ================= TEAM MEMBERS =================
 
   const [teamMembers, setTeamMembers] =
     useState(() => {
-      const savedMembers =
-        localStorage.getItem("taskflowTeamMembers");
+      try {
+        const savedMembers =
+          localStorage.getItem(
+            "taskflowTeamMembers"
+          );
 
-      return savedMembers
-        ? JSON.parse(savedMembers)
-        : [];
+        return savedMembers
+          ? JSON.parse(savedMembers)
+          : [];
+      } catch {
+        return [];
+      }
     });
 
   const [assigneeDropdownOpen, setAssigneeDropdownOpen] =
@@ -85,6 +115,8 @@ function App() {
       type: "success",
     });
 
+  // ================= FORM =================
+
   const [formData, setFormData] =
     useState({
       title: "",
@@ -95,6 +127,23 @@ function App() {
       due_date: "",
       blocker: "",
     });
+
+  // ================= AUTO SCROLL CHAT =================
+
+  useEffect(() => {
+    if (activeSection === "chat") {
+      setTimeout(() => {
+        chatEndRef.current?.scrollIntoView({
+          behavior: "smooth",
+          block: "end",
+        });
+      }, 100);
+    }
+  }, [
+    chatMessages,
+    chatLoading,
+    activeSection,
+  ]);
 
   // ================= CLICK OUTSIDE DROPDOWN =================
 
@@ -162,17 +211,20 @@ function App() {
       const response =
         await axios.get(API_URL);
 
-      setTasks(response.data);
+      const taskData = Array.isArray(response.data)
+        ? response.data
+        : [];
 
-      // Add existing assignees automatically
-      const existingAssignees =
-        response.data
-          .map((task) => task.assignee)
-          .filter(
-            (assignee) =>
-              assignee &&
-              assignee.trim() !== ""
-          );
+      setTasks(taskData);
+
+      const existingAssignees = taskData
+        .map((task) => task.assignee)
+        .filter(
+          (assignee) =>
+            assignee &&
+            assignee.trim() !== ""
+        )
+        .map((assignee) => assignee.trim());
 
       setTeamMembers((prev) => {
         const combined = [
@@ -180,11 +232,20 @@ function App() {
           ...existingAssignees,
         ];
 
-        return [...new Set(combined)];
+        return [
+          ...new Map(
+            combined.map((member) => [
+              member.toLowerCase(),
+              member,
+            ])
+          ).values(),
+        ];
       });
-
     } catch (error) {
-      console.error(error);
+      console.error(
+        "Task fetch error:",
+        error
+      );
     } finally {
       setLoading(false);
     }
@@ -195,14 +256,18 @@ function App() {
   const fetchBlockers = async () => {
     try {
       const response =
-        await axios.get(
-          BLOCKER_API_URL
-        );
+        await axios.get(BLOCKER_API_URL);
 
-      setBlockers(response.data);
-
+      setBlockers(
+        Array.isArray(response.data)
+          ? response.data
+          : []
+      );
     } catch (error) {
-      console.error(error);
+      console.error(
+        "Blocker fetch error:",
+        error
+      );
     }
   };
 
@@ -211,12 +276,9 @@ function App() {
   const fetchAnalytics = async () => {
     try {
       const response =
-        await axios.get(
-          ANALYTICS_API_URL
-        );
+        await axios.get(ANALYTICS_API_URL);
 
       setAnalytics(response.data);
-
     } catch (error) {
       console.error(
         "Analytics error:",
@@ -230,12 +292,9 @@ function App() {
   const fetchAlerts = async () => {
     try {
       const response =
-        await axios.get(
-          ALERTS_API_URL
-        );
+        await axios.get(ALERTS_API_URL);
 
       setAlerts(response.data);
-
     } catch (error) {
       console.error(
         "Alert error:",
@@ -244,7 +303,7 @@ function App() {
     }
   };
 
-  // ================= LOAD DATA =================
+  // ================= REFRESH DATA =================
 
   const refreshAllData = async () => {
     await Promise.all([
@@ -255,18 +314,24 @@ function App() {
     ]);
   };
 
+  // ================= INITIAL LOAD =================
+
   useEffect(() => {
     refreshAllData();
   }, []);
 
-  // ================= FORM =================
+  // ================= FORM CHANGE =================
 
   const handleChange = (e) => {
-    setFormData({
-      ...formData,
-      [e.target.name]: e.target.value,
-    });
+    const { name, value } = e.target;
+
+    setFormData((prev) => ({
+      ...prev,
+      [name]: value,
+    }));
   };
+
+  // ================= RESET FORM =================
 
   const resetForm = () => {
     setFormData({
@@ -280,9 +345,9 @@ function App() {
     });
 
     setEditingTask(null);
-
     setAssigneeDropdownOpen(false);
     setShowAddMemberInput(false);
+    setNewTeamMember("");
   };
 
   // ================= SELECT TEAM MEMBER =================
@@ -331,9 +396,7 @@ function App() {
     }));
 
     setNewTeamMember("");
-
     setShowAddMemberInput(false);
-
     setAssigneeDropdownOpen(false);
 
     showNotification(
@@ -341,7 +404,7 @@ function App() {
     );
   };
 
-  // ================= CREATE / UPDATE =================
+  // ================= CREATE / UPDATE TASK =================
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -356,7 +419,6 @@ function App() {
         showNotification(
           "Task updated successfully!"
         );
-
       } else {
         await axios.post(
           API_URL,
@@ -368,23 +430,20 @@ function App() {
         );
       }
 
-      // Add selected assignee to team list
       if (
         formData.assignee &&
         formData.assignee.trim() !== ""
       ) {
         setTeamMembers((prev) => {
-          if (
-            prev.some(
-              (member) =>
-                member.toLowerCase() ===
-                formData.assignee
-                  .trim()
-                  .toLowerCase()
-            )
-          ) {
-            return prev;
-          }
+          const exists = prev.some(
+            (member) =>
+              member.toLowerCase() ===
+              formData.assignee
+                .trim()
+                .toLowerCase()
+          );
+
+          if (exists) return prev;
 
           return [
             ...prev,
@@ -400,9 +459,11 @@ function App() {
       setStandup("");
 
       setActiveSection("tasks");
-
     } catch (error) {
-      console.error(error);
+      console.error(
+        "Task save error:",
+        error
+      );
 
       showNotification(
         "Failed to save task.",
@@ -411,7 +472,7 @@ function App() {
     }
   };
 
-  // ================= EDIT =================
+  // ================= EDIT TASK =================
 
   const handleEdit = (task) => {
     setEditingTask(task);
@@ -426,23 +487,25 @@ function App() {
         task.priority || "Medium",
       status:
         task.status || "To Do",
-      due_date:
-        task.due_date
-          ? task.due_date.split("T")[0]
-          : "",
+      due_date: task.due_date
+        ? task.due_date.split("T")[0]
+        : "",
       blocker:
         task.blocker || "",
     });
 
-    // Make sure edited assignee exists in list
     if (
       task.assignee &&
       task.assignee.trim() !== ""
     ) {
       setTeamMembers((prev) => {
-        if (prev.includes(task.assignee)) {
-          return prev;
-        }
+        const exists = prev.some(
+          (member) =>
+            member.toLowerCase() ===
+            task.assignee.toLowerCase()
+        );
+
+        if (exists) return prev;
 
         return [
           ...prev,
@@ -454,7 +517,7 @@ function App() {
     setActiveSection("add");
   };
 
-  // ================= DELETE =================
+  // ================= DELETE TASK =================
 
   const handleDelete = async (id) => {
     const confirmed =
@@ -474,9 +537,11 @@ function App() {
       );
 
       await refreshAllData();
-
     } catch (error) {
-      console.error(error);
+      console.error(
+        "Delete error:",
+        error
+      );
 
       showNotification(
         "Failed to delete task.",
@@ -485,26 +550,26 @@ function App() {
     }
   };
 
-  // ================= STANDUP =================
+  // ================= GENERATE STANDUP =================
 
   const generateStandup = async () => {
     try {
       setStandupLoading(true);
 
       const response =
-        await axios.get(
-          STANDUP_API_URL
-        );
+        await axios.get(STANDUP_API_URL);
 
       setStandup(
-        response.data.standup
+        response.data.standup ||
+          "No standup report generated."
       );
 
       showNotification(
         "AI Standup generated!"
       );
-
     } catch (error) {
+      console.error(error);
+
       setStandup(
         "Failed to generate AI standup report."
       );
@@ -513,22 +578,25 @@ function App() {
         "Failed to generate standup.",
         "error"
       );
-
     } finally {
       setStandupLoading(false);
     }
   };
 
-  // ================= AI CHAT =================
+  // ================= SEND CHAT =================
 
   const sendChatMessage = async (e) => {
     e.preventDefault();
 
-    if (!chatInput.trim()) return;
+    const messageText =
+      chatInput.trim();
+
+    if (!messageText || chatLoading) return;
 
     const userMessage = {
+      id: Date.now(),
       role: "user",
-      text: chatInput,
+      text: messageText,
     };
 
     setChatMessages((prev) => [
@@ -537,7 +605,6 @@ function App() {
     ]);
 
     setChatInput("");
-
     setChatLoading(true);
 
     try {
@@ -545,28 +612,37 @@ function App() {
         await axios.post(
           CHAT_API_URL,
           {
-            message: userMessage.text,
+            message: messageText,
           }
         );
 
+      const answer =
+        response.data?.answer ||
+        "I could not generate an answer.";
+
       setChatMessages((prev) => [
         ...prev,
         {
+          id: Date.now() + 1,
           role: "ai",
-          text: response.data.answer,
+          text: answer,
         },
       ]);
-
     } catch (error) {
+      console.error(
+        "Chat error:",
+        error
+      );
+
       setChatMessages((prev) => [
         ...prev,
         {
+          id: Date.now() + 1,
           role: "ai",
           text:
-            "Sorry, I could not process your request.",
+            "⚠️ Sorry, I could not process your request. Please check the server and try again.",
         },
       ]);
-
     } finally {
       setChatLoading(false);
     }
@@ -574,178 +650,164 @@ function App() {
 
   // ================= DASHBOARD =================
 
-  const renderDashboard = () => (
-    <>
-      <div className="page-header">
-        <div>
-          <h1>Dashboard</h1>
-          <p>
-            Overview of your team's work and productivity.
-          </p>
-        </div>
+  const renderDashboard = () => {
+    const completedCount = tasks.filter(
+      (task) =>
+        task.status === "Completed"
+    ).length;
 
-        <button
-          className="refresh-button"
-          onClick={() => {
-            refreshAllData();
-            showNotification(
-              "Dashboard refreshed!"
-            );
-          }}
-        >
-          🔄 Refresh
-        </button>
-      </div>
+    const progressCount = tasks.filter(
+      (task) =>
+        task.status === "In Progress"
+    ).length;
 
-      {alerts && (
-        <div className="alert-summary">
+    const blockedCount = tasks.filter(
+      (task) =>
+        task.status === "Blocked"
+    ).length;
 
-          {alerts.overdue.length > 0 && (
-            <div className="alert overdue">
-              🔴 {alerts.overdue.length} task(s)
-              {" "}are overdue
-            </div>
-          )}
+    const completionRate = tasks.length
+      ? Math.round(
+          (completedCount / tasks.length) * 100
+        )
+      : 0;
 
-          {alerts.dueTomorrow.length > 0 && (
-            <div className="alert tomorrow">
-              🟠 {alerts.dueTomorrow
-                .map((task) => task.title)
-                .join(", ")}
-              {" "}is due tomorrow
-            </div>
-          )}
-
-          {alerts.highPriorityIncomplete > 0 && (
-            <div className="alert priority">
-              ⚠️ {alerts.highPriorityIncomplete}
-              {" "}high-priority task(s) are incomplete
-            </div>
-          )}
-
-        </div>
-      )}
-
-      <div className="stats">
-
-        <div className="card">
-          <span>📋</span>
+    return (
+      <>
+        <div className="page-header">
           <div>
-            <h3>Total Tasks</h3>
-            <p>{tasks.length}</p>
-          </div>
-        </div>
-
-        <div className="card">
-          <span>✅</span>
-          <div>
-            <h3>Completed</h3>
+            <h1>Dashboard</h1>
             <p>
-              {
-                tasks.filter(
-                  (task) =>
-                    task.status === "Completed"
-                ).length
-              }
+              Overview of your team's work and productivity.
             </p>
+          </div>
+
+          <button
+            className="refresh-button"
+            onClick={async () => {
+              await refreshAllData();
+              showNotification(
+                "Dashboard refreshed!"
+              );
+            }}
+          >
+            🔄 Refresh
+          </button>
+        </div>
+
+        {alerts && (
+          <div className="alert-summary">
+            {alerts.overdue?.length > 0 && (
+              <div className="alert overdue">
+                🔴 {alerts.overdue.length} task(s)
+                {" "}are overdue
+              </div>
+            )}
+
+            {alerts.dueTomorrow?.length > 0 && (
+              <div className="alert tomorrow">
+                🟠{" "}
+                {alerts.dueTomorrow
+                  .map((task) => task.title)
+                  .join(", ")}
+                {" "}due tomorrow
+              </div>
+            )}
+
+            {alerts.highPriorityIncomplete > 0 && (
+              <div className="alert priority">
+                ⚠️{" "}
+                {alerts.highPriorityIncomplete}
+                {" "}high-priority task(s) are incomplete
+              </div>
+            )}
+          </div>
+        )}
+
+        <div className="stats">
+          <div className="card">
+            <span>📋</span>
+            <div>
+              <h3>Total Tasks</h3>
+              <p>{tasks.length}</p>
+            </div>
+          </div>
+
+          <div className="card">
+            <span>✅</span>
+            <div>
+              <h3>Completed</h3>
+              <p>{completedCount}</p>
+            </div>
+          </div>
+
+          <div className="card">
+            <span>🔄</span>
+            <div>
+              <h3>In Progress</h3>
+              <p>{progressCount}</p>
+            </div>
+          </div>
+
+          <div className="card">
+            <span>🚧</span>
+            <div>
+              <h3>Blocked</h3>
+              <p>{blockedCount}</p>
+            </div>
           </div>
         </div>
 
-        <div className="card">
-          <span>🔄</span>
-          <div>
-            <h3>In Progress</h3>
+        <div className="dashboard-grid">
+          <div className="dashboard-panel">
+            <h2>🚧 Active Blockers</h2>
+
+            {blockers.length === 0 ? (
+              <p className="empty-state">
+                🎉 No active blockers!
+              </p>
+            ) : (
+              blockers
+                .slice(0, 3)
+                .map((task) => (
+                  <div
+                    className="mini-blocker"
+                    key={task.id}
+                  >
+                    <strong>
+                      {task.title}
+                    </strong>
+
+                    <p>
+                      {task.blocker ||
+                        "No blocker description"}
+                    </p>
+                  </div>
+                ))
+            )}
+          </div>
+
+          <div className="dashboard-panel">
+            <h2>⚡ Quick Overview</h2>
+
             <p>
-              {
-                tasks.filter(
-                  (task) =>
-                    task.status ===
-                    "In Progress"
-                ).length
-              }
+              Total tasks:{" "}
+              <strong>
+                {tasks.length}
+              </strong>
             </p>
-          </div>
-        </div>
 
-        <div className="card">
-          <span>🚧</span>
-          <div>
-            <h3>Blocked</h3>
             <p>
-              {
-                tasks.filter(
-                  (task) =>
-                    task.status === "Blocked"
-                ).length
-              }
+              Completion rate:{" "}
+              <strong>
+                {completionRate}%
+              </strong>
             </p>
           </div>
         </div>
-
-      </div>
-
-      <div className="dashboard-grid">
-
-        <div className="dashboard-panel">
-          <h2>🚧 Active Blockers</h2>
-
-          {blockers.length === 0 ? (
-            <p className="empty-state">
-              🎉 No active blockers!
-            </p>
-          ) : (
-            blockers
-              .slice(0, 3)
-              .map((task) => (
-                <div
-                  className="mini-blocker"
-                  key={task.id}
-                >
-                  <strong>
-                    {task.title}
-                  </strong>
-
-                  <p>
-                    {task.blocker ||
-                      "No blocker description"}
-                  </p>
-                </div>
-              ))
-          )}
-        </div>
-
-        <div className="dashboard-panel">
-          <h2>⚡ Quick Overview</h2>
-
-          <p>
-            Total tasks:{" "}
-            <strong>
-              {tasks.length}
-            </strong>
-          </p>
-
-          <p>
-            Completion rate:{" "}
-            <strong>
-              {tasks.length
-                ? Math.round(
-                    (tasks.filter(
-                      (task) =>
-                        task.status ===
-                        "Completed"
-                    ).length /
-                      tasks.length) *
-                      100
-                  )
-                : 0}
-              %
-            </strong>
-          </p>
-        </div>
-
-      </div>
-    </>
-  );
+      </>
+    );
+  };
 
   // ================= ANALYTICS =================
 
@@ -773,33 +835,30 @@ function App() {
         </div>
 
         <div className="analytics-summary">
-
           <div className="analytics-card">
             <h3>Total Tasks</h3>
-            <p>{analytics.total}</p>
+            <p>{analytics.total || 0}</p>
           </div>
 
           <div className="analytics-card">
             <h3>Completed</h3>
-            <p>{analytics.completed}</p>
+            <p>{analytics.completed || 0}</p>
           </div>
 
           <div className="analytics-card">
             <h3>Completion Rate</h3>
             <p>
-              {analytics.completionRate}%
+              {analytics.completionRate || 0}%
             </p>
           </div>
 
           <div className="analytics-card">
             <h3>Blocked</h3>
-            <p>{analytics.blocked}</p>
+            <p>{analytics.blocked || 0}</p>
           </div>
-
         </div>
 
         <div className="charts-grid">
-
           <div className="chart-card">
             <h2>Tasks by Status</h2>
 
@@ -810,7 +869,7 @@ function App() {
               <PieChart>
                 <Pie
                   data={
-                    analytics.statusData
+                    analytics.statusData || []
                   }
                   dataKey="value"
                   nameKey="name"
@@ -819,10 +878,10 @@ function App() {
                   outerRadius={100}
                   label
                 >
-                  {analytics.statusData.map(
+                  {(analytics.statusData || []).map(
                     (entry, index) => (
                       <Cell
-                        key={index}
+                        key={`${entry.name}-${index}`}
                         fill={
                           COLORS[
                             index %
@@ -835,7 +894,6 @@ function App() {
                 </Pie>
 
                 <Tooltip />
-
                 <Legend />
               </PieChart>
             </ResponsiveContainer>
@@ -850,15 +908,12 @@ function App() {
             >
               <BarChart
                 data={
-                  analytics.priorityData
+                  analytics.priorityData || []
                 }
               >
                 <XAxis dataKey="name" />
-
                 <YAxis />
-
                 <Tooltip />
-
                 <Legend />
 
                 <Bar
@@ -870,21 +925,18 @@ function App() {
               </BarChart>
             </ResponsiveContainer>
           </div>
-
         </div>
 
         <div className="productivity-section">
-
           <h2>
             👥 Team Productivity
           </h2>
 
-          {analytics.teamProductivity
+          {(analytics.teamProductivity || [])
             .length === 0 ? (
             <p>No team data available.</p>
           ) : (
             <div className="productivity-list">
-
               {analytics.teamProductivity.map(
                 (member) => (
                   <div
@@ -913,22 +965,21 @@ function App() {
                       <div
                         className="progress-fill"
                         style={{
-                          width: `${member.productivity}%`,
+                          width:
+                            `${member.productivity || 0}%`,
                         }}
                       />
                     </div>
 
                     <strong>
                       Productivity:{" "}
-                      {member.productivity}%
+                      {member.productivity || 0}%
                     </strong>
                   </div>
                 )
               )}
-
             </div>
           )}
-
         </div>
       </>
     );
@@ -941,6 +992,7 @@ function App() {
       <div className="page-header">
         <div>
           <h1>🤖 Ask TaskFlow AI</h1>
+
           <p>
             Ask questions about your project and team.
           </p>
@@ -948,9 +1000,9 @@ function App() {
       </div>
 
       <div className="chat-container">
-
         <div className="chat-suggestions">
           <button
+            type="button"
             onClick={() =>
               setChatInput(
                 "What should I work on today?"
@@ -961,6 +1013,7 @@ function App() {
           </button>
 
           <button
+            type="button"
             onClick={() =>
               setChatInput(
                 "Which task is risky?"
@@ -971,6 +1024,7 @@ function App() {
           </button>
 
           <button
+            type="button"
             onClick={() =>
               setChatInput(
                 "Why is our project delayed?"
@@ -981,6 +1035,7 @@ function App() {
           </button>
 
           <button
+            type="button"
             onClick={() =>
               setChatInput(
                 "Who has the most blocked tasks?"
@@ -992,38 +1047,79 @@ function App() {
         </div>
 
         <div className="chat-messages">
-
           {chatMessages.length === 0 && (
             <div className="chat-welcome">
-              🤖 Hello! I'm TaskFlow AI.
+              <div className="chat-welcome-icon">
+                🤖
+              </div>
 
-              <br />
+              <h2>
+                Hello! I'm TaskFlow AI
+              </h2>
 
-              Ask me anything about your project.
+              <p>
+                Ask me anything about your tasks,
+                blockers, priorities, deadlines, or
+                project progress.
+              </p>
             </div>
           )}
 
           {chatMessages.map(
-            (message, index) => (
+            (message) => (
               <div
-                key={index}
+                key={message.id}
                 className={
                   message.role === "user"
-                    ? "message user-message"
-                    : "message ai-message"
+                    ? "chat-row user-row"
+                    : "chat-row ai-row"
                 }
               >
-                {message.text}
+                {message.role === "ai" && (
+                  <div className="chat-avatar">
+                    🤖
+                  </div>
+                )}
+
+                <div
+                  className={
+                    message.role === "user"
+                      ? "message user-message"
+                      : "message ai-message"
+                  }
+                >
+                  {message.role === "ai" ? (
+                    <ReactMarkdown
+                      remarkPlugins={[remarkGfm]}
+                    >
+                      {message.text}
+                    </ReactMarkdown>
+                  ) : (
+                    message.text
+                  )}
+                </div>
               </div>
             )
           )}
 
           {chatLoading && (
-            <div className="message ai-message">
-              🤖 Thinking...
+            <div className="chat-row ai-row">
+              <div className="chat-avatar">
+                🤖
+              </div>
+
+              <div className="message ai-message thinking-message">
+                <span>Thinking</span>
+                <span className="thinking-dots">
+                  <i></i>
+                  <i></i>
+                  <i></i>
+                </span>
+              </div>
             </div>
           )}
 
+          <div ref={chatEndRef} />
         </div>
 
         <form
@@ -1032,25 +1128,31 @@ function App() {
         >
           <input
             type="text"
-            placeholder="Ask TaskFlow AI..."
+            placeholder="Ask TaskFlow AI anything..."
             value={chatInput}
+            disabled={chatLoading}
             onChange={(e) =>
-              setChatInput(
-                e.target.value
-              )
+              setChatInput(e.target.value)
             }
           />
 
-          <button type="submit">
-            Send 🚀
+          <button
+            type="submit"
+            disabled={
+              chatLoading ||
+              !chatInput.trim()
+            }
+          >
+            {chatLoading
+              ? "Thinking..."
+              : "Send 🚀"}
           </button>
         </form>
-
       </div>
     </>
   );
 
-  // ================= ADD / EDIT =================
+  // ================= ADD TASK =================
 
   const renderAddTask = () => (
     <>
@@ -1072,7 +1174,6 @@ function App() {
 
       <div className="form-container">
         <form onSubmit={handleSubmit}>
-
           <input
             type="text"
             name="title"
@@ -1088,8 +1189,6 @@ function App() {
             value={formData.description}
             onChange={handleChange}
           />
-
-          {/* ================= ASSIGNEE DROPDOWN ================= */}
 
           <div
             className="assignee-dropdown-container"
@@ -1119,20 +1218,18 @@ function App() {
 
             {assigneeDropdownOpen && (
               <div className="assignee-dropdown-menu">
-
                 <div className="assignee-list">
-
                   {teamMembers.length === 0 ? (
                     <div className="no-members">
                       No team members yet
                     </div>
                   ) : (
                     teamMembers.map(
-                      (member, index) => (
+                      (member) => (
                         <button
                           type="button"
                           className="assignee-option"
-                          key={index}
+                          key={member}
                           onClick={() =>
                             selectTeamMember(member)
                           }
@@ -1142,7 +1239,6 @@ function App() {
                       )
                     )
                   )}
-
                 </div>
 
                 {!showAddMemberInput ? (
@@ -1181,9 +1277,7 @@ function App() {
                       <button
                         type="button"
                         className="save-member-button"
-                        onClick={
-                          addTeamMember
-                        }
+                        onClick={addTeamMember}
                       >
                         Add
                       </button>
@@ -1203,7 +1297,6 @@ function App() {
                     </div>
                   </div>
                 )}
-
               </div>
             )}
           </div>
@@ -1244,7 +1337,6 @@ function App() {
           />
 
           <div className="form-actions">
-
             <button type="submit">
               {editingTask
                 ? "💾 Update Task"
@@ -1263,9 +1355,7 @@ function App() {
                 Cancel
               </button>
             )}
-
           </div>
-
         </form>
       </div>
     </>
@@ -1278,6 +1368,7 @@ function App() {
       <div className="page-header">
         <div>
           <h1>🚧 Active Blockers</h1>
+
           <p>
             AI-powered blocker analysis.
           </p>
@@ -1290,7 +1381,6 @@ function App() {
         </div>
       ) : (
         <div className="blocker-list">
-
           {blockers.map((task) => (
             <div
               className="blocker-card"
@@ -1315,13 +1405,15 @@ function App() {
                   🤖 AI Recommendation
                 </strong>
 
-                <p>
-                  {task.recommendation}
-                </p>
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                >
+                  {task.recommendation ||
+                    "No recommendation available."}
+                </ReactMarkdown>
               </div>
             </div>
           ))}
-
         </div>
       )}
     </>
@@ -1342,7 +1434,6 @@ function App() {
       </div>
 
       <div className="standup-section">
-
         <button
           className="standup-button"
           onClick={generateStandup}
@@ -1355,18 +1446,19 @@ function App() {
 
         {standup && (
           <div className="standup-report">
-
             <h2>
               🤖 AI Standup Report
             </h2>
 
             <div className="standup-content">
-              {standup}
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+              >
+                {standup}
+              </ReactMarkdown>
             </div>
-
           </div>
         )}
-
       </div>
     </>
   );
@@ -1393,27 +1485,23 @@ function App() {
         </div>
       ) : (
         <div className="task-list">
-
           {tasks.map((task) => (
             <div
               className="task-card"
               key={task.id}
             >
-
               <div className="task-card-header">
-
-                <h3>
-                  {task.title}
-                </h3>
+                <h3>{task.title}</h3>
 
                 <span
-                  className={`status-badge ${task.status
+                  className={`status-badge ${(
+                    task.status || "To Do"
+                  )
                     .toLowerCase()
                     .replace(/\s/g, "-")}`}
                 >
                   {task.status}
                 </span>
-
               </div>
 
               <p>
@@ -1422,7 +1510,6 @@ function App() {
               </p>
 
               <div className="task-info">
-
                 <span>
                   👤{" "}
                   {task.assignee ||
@@ -1441,11 +1528,9 @@ function App() {
                     ).toLocaleDateString()}
                   </span>
                 )}
-
               </div>
 
               <div className="task-actions">
-
                 <button
                   className="edit-button"
                   onClick={() =>
@@ -1463,18 +1548,15 @@ function App() {
                 >
                   🗑 Delete
                 </button>
-
               </div>
-
             </div>
           ))}
-
         </div>
       )}
     </>
   );
 
-  // ================= CONTENT =================
+  // ================= CONTENT ROUTER =================
 
   const renderContent = () => {
     switch (activeSection) {
@@ -1504,11 +1586,10 @@ function App() {
     }
   };
 
-  // ================= APP =================
+  // ================= MAIN APP =================
 
   return (
     <div className="app-layout">
-
       {notification.show && (
         <div
           className={`notification ${notification.type}`}
@@ -1523,15 +1604,18 @@ function App() {
         </div>
       )}
 
-      <aside className="sidebar">
+      {/* ================= SIDEBAR ================= */}
 
+      <aside className="sidebar">
         <div className="logo">
           <h2>🚀 TaskFlow</h2>
-          <span>AI TEAM COPILOT</span>
+
+          <span>
+            AI TEAM COPILOT
+          </span>
         </div>
 
         <nav className="nav-menu">
-
           <button
             className={
               activeSection === "dashboard"
@@ -1624,19 +1708,18 @@ function App() {
           >
             🤖 Ask TaskFlow AI
           </button>
-
         </nav>
 
         <div className="sidebar-footer">
           🤖 Powered by Groq AI
         </div>
-
       </aside>
+
+      {/* ================= MAIN CONTENT ================= */}
 
       <main className="main-content">
         {renderContent()}
       </main>
-
     </div>
   );
 }
